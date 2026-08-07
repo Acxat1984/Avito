@@ -25,7 +25,7 @@
 - **DaData** — данные ЕГРЮЛ по ИНН
 - **Telegram Bot API** — рабочий бот и алерты
 - **SheetJS (`xlsx`)** — импорт и экспорт Excel
-- **Vitest** — тесты (107 штук)
+- **Vitest** — тесты (108 штук)
 
 ---
 
@@ -34,7 +34,7 @@
 ```bash
 npm install
 npm run dev          # локальный запуск, админка на http://localhost:3000/admin
-npm test             # vitest, 107 тестов, сеть не нужна
+npm test             # vitest, 108 тестов, сеть не нужна
 npm run build        # сборка (нужен доступ к fonts.googleapis.com)
 npx tsc --noEmit     # проверка типов
 npx eslint .         # линтер
@@ -348,7 +348,7 @@ Basic Auth на `/admin` и `/api/admin` через `proxy.ts` (в Next.js 16 mi
 
 ## 12. Тесты
 
-107 тестов, сеть и БД не нужны — `npm test`.
+108 тестов, сеть и БД не нужны — `npm test`.
 
 | Файл | Покрывает |
 |---|---|
