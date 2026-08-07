@@ -85,7 +85,48 @@ function priceText(c: CompanyLike): string | null {
 }
 
 /**
- * Формат выдачи партнёру (Telegram). Пустые поля пропускаются,
+ * Карточка для пользователя бота, который не является владельцем
+ * (партнёр, гость). Белый список полей: название, адрес, расчётный счёт,
+ * обороты, налоговый режим, год создания и цена продажи.
+ * НЕ содержит: ИНН, контакт продавца, цену закупа, ЗСКА и «дополнительно»
+ * (там бывают долги и причина продажи).
+ */
+export function formatPartnerCard(c: CompanyLike): string {
+  const lines: string[] = [`✅ ${c.name}`];
+  const add = (label: string, value: unknown) => {
+    if (value === null || value === undefined || value === '') return;
+    lines.push(`✅ ${label}: ${value}`);
+  };
+
+  add('Год создания', c.year_reg ? `${c.year_reg} год` : null);
+  add('Налогообложение', c.tax_system ? TAX_NAMES[c.tax_system] ?? c.tax_system : c.tax_raw);
+
+  const place = c.address
+    ? [regionName(c.region_code) ?? c.city_raw, c.address].filter(Boolean).join(', ')
+    : (c.egrul_address ?? regionName(c.region_code) ?? c.city_raw ?? null);
+  add('Адрес', place);
+
+  add('Р/С', c.banks);
+
+  const turns = turnoverLines(c.turnovers);
+  if (turns.length > 0) {
+    lines.push('✅ Обороты:');
+    lines.push(...turns);
+  } else if (c.turnover_note) {
+    add('Обороты', c.turnover_note);
+  }
+
+  // цену числом сопровождаем единицей, свободный текст («Дог») оставляем как есть
+  const hasNumericPrice = c.price_k !== null && c.price_k !== undefined && c.price_k !== '';
+  const price = priceText(c);
+  add('Цена', price ? (hasNumericPrice ? `${price} тыс ₽` : price) : 'обсуждается');
+  lines.push(`✅ Номер в базе: ${c.id}`);
+
+  return lines.join('\n');
+}
+
+/**
+ * Формат выдачи владельцу (Telegram). Пустые поля пропускаются,
  * чтобы карточка не пестрела прочерками.
  */
 export function formatCompanyCard(c: CompanyLike, opts: { showBuyPrice?: boolean } = {}): string {

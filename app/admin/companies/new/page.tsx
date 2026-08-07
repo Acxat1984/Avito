@@ -10,7 +10,8 @@ const TAXES: Array<[string, string]> = [
 ];
 
 const CURRENT_YEAR = new Date().getFullYear();
-const TURNOVER_YEARS = [CURRENT_YEAR - 2, CURRENT_YEAR - 1, CURRENT_YEAR];
+// четыре года: три завершённых + текущий
+const TURNOVER_YEARS = [CURRENT_YEAR - 3, CURRENT_YEAR - 2, CURRENT_YEAR - 1, CURRENT_YEAR];
 
 const MODES = [
   { key: 'quick', label: '⚡ Быстро по ИНН', hint: 'данные подтянутся из ЕГРЮЛ' },
@@ -113,7 +114,6 @@ function FullForm() {
         <h2 className="font-medium md:col-span-2">Деньги</h2>
         <Field name="buy_price_k" label="Цена закупа, тыс ₽" placeholder="200" inputMode="decimal" />
         <Field name="price_k" label="Цена продажи, тыс ₽" placeholder="300" inputMode="decimal" />
-        <Field name="price_note" label="Приписка к цене" placeholder="нотариат / торг" />
         <div className="md:col-span-2">
           <span className="text-xs text-gray-500">Обороты по годам, млн ₽</span>
           <div className="mt-1 flex flex-wrap gap-2">

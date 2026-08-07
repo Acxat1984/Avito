@@ -2,8 +2,10 @@ import Link from 'next/link';
 import { queryCompanies, filtersFromSearchParams } from '@/lib/db/queries';
 import { REGION_NAMES } from '@/lib/normalize/regions';
 import { StatusBadge, EgrulBadge } from '@/app/admin/ui';
-import { bulkSetStatus, bulkSetStatusByFilter } from './actions';
+import { bulkSetStatus, bulkSetStatusByFilter, bulkDelete } from './actions';
 import { SelectAllCheckbox, ConfirmButton } from './bulk-controls';
+import { EgrulCheckButton } from './egrul-check';
+import { ExportButton } from './export-button';
 import { ClientListBlock } from './client-list';
 import { getClientListWithKey, formatClientListText } from '@/lib/export/client-list';
 
@@ -35,25 +37,22 @@ export default async function CompaniesPage({
   }
   const exportQs = qs.toString();
 
+  const deleted = typeof sp.deleted === 'string' ? Number(sp.deleted) : null;
+
   return (
     <div className="space-y-4">
+      {deleted !== null && Number.isFinite(deleted) && (
+        <div className="rounded border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">
+          {deleted > 0 ? `Удалено карточек: ${deleted}` : 'Карточка удалена из базы'}
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">
           Компании <span className="text-sm font-normal text-gray-500">({total})</span>
         </h1>
-        <div className="flex gap-2">
-          <a
-            href={`/api/admin/export.xlsx${exportQs ? `?${exportQs}` : ''}`}
-            className="rounded border bg-white px-3 py-1.5 text-sm hover:bg-gray-100"
-          >
-            Экспорт .xlsx
-          </a>
-          <a
-            href={`/api/admin/export.csv${exportQs ? `?${exportQs}` : ''}`}
-            className="rounded border bg-white px-3 py-1.5 text-sm hover:bg-gray-100"
-          >
-            .csv
-          </a>
+        <div className="flex flex-wrap gap-2">
+          <EgrulCheckButton />
+          <ExportButton query={exportQs} />
           <Link
             href="/admin/companies/new"
             className="rounded bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700"
@@ -120,6 +119,13 @@ export default async function CompaniesPage({
           className="rounded bg-green-600 px-3 py-1.5 text-white hover:bg-green-700"
         >
           Применить к выбранным
+        </ConfirmButton>
+        <ConfirmButton
+          formAction={bulkDelete}
+          message="Удалить отмеченные компании из базы? Действие необратимо."
+          className="rounded border border-red-300 px-3 py-1.5 text-red-700 hover:bg-red-50"
+        >
+          Удалить выбранные
         </ConfirmButton>
         <span className="text-xs text-gray-400">
           отметьте строки чекбоксами; «выделить все» — в шапке таблицы

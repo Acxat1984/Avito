@@ -75,11 +75,14 @@ export async function queryCompanies(
   };
 }
 
-/** Все строки под фильтром — для экспорта. */
+/**
+ * Все строки под фильтром — для экспорта и клиентских списков.
+ * Порядок: сначала недавно добавленные — продавать нужно свежие карточки.
+ */
 export async function queryCompaniesAll(f: CompanyFilters): Promise<Record<string, unknown>[]> {
   const { text, params } = buildWhere(f);
   return (await sql.query(
-    `select * from companies ${text} order by id`,
+    `select * from companies ${text} order by created_at desc nulls last, id desc`,
     params,
   )) as unknown as Record<string, unknown>[];
 }

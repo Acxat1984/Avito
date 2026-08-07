@@ -2,7 +2,7 @@ import { sql } from '@/lib/db/client';
 import { config } from '@/lib/config';
 import { TgUpdate, sendText, answerCallback } from './api';
 import { touchUser, setRole, listUsers, TgRole } from './users';
-import { formatCompanyCard, CompanyLike, lastFullYearTurnover, ru } from '@/lib/format/company-card';
+import { formatCompanyCard, formatPartnerCard, CompanyLike } from '@/lib/format/company-card';
 import { parseCompaniesFromText } from '@/lib/llm/parse-company';
 import { parseShortInput } from './parse-short';
 import { createCompanyFromInn } from '@/lib/companies/create-from-inn';
@@ -22,24 +22,6 @@ function appUrl(path: string): string {
   return base ? `${base}${path}` : path;
 }
 
-const TAX_RU: Record<string, string> = {
-  osno: 'ОСНО',
-  usn6: 'УСН 6%',
-  usn_dr: 'УСН доходы-расходы',
-  ausn: 'АУСН',
-};
-
-/** Обезличенная строка для тех, у кого нет доступа к полным данным. */
-function anonLine(c: Record<string, unknown>): string {
-  const parts = [regionName(c.region_code as string) ?? 'регион уточняется'];
-  if (c.year_reg) parts.push(`${c.year_reg} год`);
-  if (c.tax_system) parts.push(TAX_RU[String(c.tax_system)] ?? String(c.tax_system));
-  const turn = lastFullYearTurnover(c.turnovers as Record<string, number> | null);
-  if (turn) parts.push(`оборот ${turn.year} — ${ru(turn.value)} млн`);
-  if (c.has_license) parts.push('лицензия');
-  return `№ ${c.id} — ${parts.join(', ')}, цена обсуждается`;
-}
-
 /**
  * Страница компаний: берём на одну больше, чтобы понять, есть ли продолжение.
  * Админу показываем и черновики — иначе половина базы невидима даже владельцу.
@@ -50,11 +32,13 @@ async function findCompanies(regionCode: string | null, offset: number, isAdmin:
     ? await sql`
         select * from companies
         where status = any(${statuses}) and region_code = ${regionCode}
-        order by id limit ${MAX_RESULTS + 1} offset ${offset}`
+        order by created_at desc nulls last, id desc
+        limit ${MAX_RESULTS + 1} offset ${offset}`
     : await sql`
         select * from companies
         where status = any(${statuses})
-        order by id limit ${MAX_RESULTS + 1} offset ${offset}`;
+        order by created_at desc nulls last, id desc
+        limit ${MAX_RESULTS + 1} offset ${offset}`;
   const [cnt] = regionCode
     ? await sql`
         select count(*)::int as n from companies
@@ -102,24 +86,29 @@ async function sendCompanyList(
 
   const where = regionCode ? ` (${regionName(regionCode)})` : '';
   const range = `${offset + 1}–${offset + rows.length} из ${total}`;
-  if (full) {
-    await sendText(chatId, `${isAdmin ? 'Компании' : 'Компании в продаже'}${where}, ${range}:`);
-    for (let i = 0; i < rows.length; i++) {
-      const isLast = i === rows.length - 1;
-      // черновик виден только админу — помечаем, чтобы не спутать с продажей
-      const draftNote = rows[i].status !== 'verified' ? '⚠️ ЧЕРНОВИК (клиентам не виден)\n' : '';
-      await sendText(
-        chatId,
-        draftNote + formatCompanyCard(rows[i] as unknown as CompanyLike, { showBuyPrice: isAdmin }),
-        isLast && hasMore ? { inline: moreButton } : {},
-      );
-    }
-  } else {
-    const lines = rows.map((c) => anonLine(c));
+  await sendText(
+    chatId,
+    `${isAdmin ? 'Компании' : 'Компании в продаже'}${where}, ${range}` +
+      (isAdmin ? ':' : ' (сначала недавно добавленные):'),
+  );
+
+  for (let i = 0; i < rows.length; i++) {
+    const isLast = i === rows.length - 1;
+    // черновик виден только админу — помечаем, чтобы не спутать с продажей
+    const draftNote = rows[i].status !== 'verified' ? '⚠️ ЧЕРНОВИК (клиентам не виден)\n' : '';
+    const card = isAdmin
+      ? formatCompanyCard(rows[i] as unknown as CompanyLike, { showBuyPrice: true })
+      : formatPartnerCard(rows[i] as unknown as CompanyLike);
+    // админу кнопка «ещё» идёт под последней карточкой, остальным — под итоговой
+    // строкой ниже, чтобы она не потерялась между сообщениями
+    const withButton = isLast && hasMore && isAdmin;
+    await sendText(chatId, draftNote + card, withButton ? { inline: moreButton } : {});
+  }
+
+  if (!isAdmin) {
     await sendText(
       chatId,
-      `Варианты в продаже${where} (${range}):\n\n${lines.join('\n')}\n\n` +
-        'Напишите номер интересующего варианта — специалист свяжется с вами и расскажет детали.',
+      'Напишите номер интересующего варианта — специалист свяжется с вами и расскажет детали.',
       hasMore ? { inline: moreButton } : {},
     );
   }
@@ -306,24 +295,26 @@ async function sendCompanyById(chatId: number, id: number, role: TgRole): Promis
     await sendText(chatId, `Карточка № ${id} не найдена.`);
     return;
   }
-  const full = role === 'admin' || role === 'partner' || config.telegram.guestAccess === 'full';
-  if (!full) {
-    if (c.status !== 'verified') {
-      await sendText(chatId, `Вариант № ${id} сейчас недоступен.`);
-      return;
-    }
-    await sendText(
-      chatId,
-      `${anonLine(c)}\n\nСпециалист свяжется с вами по этому варианту.`,
-    );
-    await notifyAdmins(`🔔 Интерес к варианту № ${id} от chat_id ${chatId}`);
+  if (role === 'admin') {
+    await sendText(chatId, formatCompanyCard(c as unknown as CompanyLike, { showBuyPrice: true }));
     return;
   }
-  if (c.status !== 'verified' && role !== 'admin') {
+
+  const hasAccess = role === 'partner' || config.telegram.guestAccess !== 'closed';
+  if (!hasAccess) {
+    await sendText(chatId, 'Доступ к базе выдаётся вручную — напишите, пожалуйста, кто вы.');
+    await notifyAdmins(`🔔 Запрос доступа к базе от chat_id ${chatId}`);
+    return;
+  }
+  if (c.status !== 'verified') {
     await sendText(chatId, `Вариант № ${id} сейчас недоступен.`);
     return;
   }
-  await sendText(chatId, formatCompanyCard(c as unknown as CompanyLike, { showBuyPrice: role === 'admin' }));
+  await sendText(
+    chatId,
+    `${formatPartnerCard(c as unknown as CompanyLike)}\n\nСпециалист свяжется с вами по этому варианту.`,
+  );
+  await notifyAdmins(`🔔 Интерес к варианту № ${id} от chat_id ${chatId}`);
 }
 
 const HELP_GUEST =

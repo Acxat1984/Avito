@@ -5,12 +5,18 @@ import { redirect } from 'next/navigation';
 import { sql } from '@/lib/db/client';
 import { CompanyFilters, queryCompaniesAll } from '@/lib/db/queries';
 import { normalizeInn } from '@/lib/normalize';
+import type { EgrulSweepResult } from './egrul-types';
 
-/** Поля, редактируемые в карточке (нормализованные; raw — read-only). */
+/**
+ * Поля, редактируемые в карточке (нормализованные; raw — read-only).
+ * turnover_note и price_note убраны из формы: обороты ведутся по годам,
+ * приписка к цене не нужна. Их нет в списке, иначе сохранение затирало бы
+ * старые значения пустым.
+ */
 const EDITABLE_TEXT = [
   'name', 'inn', 'seller_contact', 'region_code', 'tax_system',
-  'turnover_note', 'extra', 'banks', 'status', 'review_notes',
-  'address', 'okved', 'zska', 'price_note',
+  'extra', 'banks', 'status', 'review_notes',
+  'address', 'okved', 'zska',
 ] as const;
 const EDITABLE_NUM = [
   'year_reg', 'turnover_last_m', 'price_k', 'buy_price_k', 'employees',
@@ -101,9 +107,10 @@ export async function updateCompany(id: number, fd: FormData) {
 
   revalidatePath(`/admin/companies/${id}`);
   revalidatePath('/admin/companies');
+  redirect(`/admin/companies/${id}?saved=1`);
 }
 
-/** Удаление = смена статуса на archived (физических delete нет). */
+/** Архивирование: карточка исчезает из выдачи, но остаётся в базе и в истории. */
 export async function archiveCompany(id: number) {
   const [existing] = await sql`select status from companies where id = ${id}`;
   if (!existing || existing.status === 'archived') return;
@@ -114,6 +121,42 @@ export async function archiveCompany(id: number) {
   `;
   revalidatePath(`/admin/companies/${id}`);
   revalidatePath('/admin/companies');
+}
+
+/**
+ * Безвозвратное удаление карточек. Аудит и строки импорта уходят каскадом,
+ * ссылки из лидов обнуляем вручную (внешний ключ без on delete).
+ * Используется, когда карточка не нужна совсем — например, компания
+ * ликвидирована. Обычный способ убрать из продажи — архив.
+ */
+async function deleteCompanies(ids: number[]): Promise<number> {
+  if (ids.length === 0) return 0;
+  const rows = await sql`select id from companies where id = any(${ids})`;
+  if (rows.length === 0) return 0;
+  const realIds = rows.map((r) => Number(r.id));
+
+  // company_audit уходит каскадом; в leads внешний ключ без каскада — обнуляем.
+  // import_rows не трогаем: там нет FK, а история импорта должна остаться.
+  await sql.transaction([
+    sql`update leads set company_id = null where company_id = any(${realIds})`,
+    sql`delete from companies where id = any(${realIds})`,
+  ]);
+  return realIds.length;
+}
+
+/** Удаление одной карточки со страницы компании. */
+export async function deleteCompany(id: number) {
+  await deleteCompanies([id]);
+  revalidatePath('/admin/companies');
+  redirect('/admin/companies?deleted=1');
+}
+
+/** Удаление отмеченных чекбоксами карточек. */
+export async function bulkDelete(fd: FormData) {
+  const ids = fd.getAll('ids').map(Number).filter((n) => Number.isInteger(n));
+  const n = await deleteCompanies(ids);
+  revalidatePath('/admin/companies');
+  redirect(`/admin/companies?deleted=${n}`);
 }
 
 const VALID_STATUSES = ['draft', 'verified', 'reserved', 'sold', 'archived'];
@@ -188,6 +231,83 @@ export async function checkEgrul(id: number) {
   revalidatePath('/admin/companies');
 }
 
+/** За один прогон проверяем не больше — чтобы уложиться в лимит времени функции. */
+const SWEEP_LIMIT = 150;
+
+/**
+ * Массовая проверка всех карточек с ИНН по ЕГРЮЛ.
+ * Возвращает сводку для показа в окне: что изменилось и какие компании
+ * больше не действующие.
+ */
+export async function checkAllEgrul(): Promise<EgrulSweepResult> {
+  const { checkCompanyByInn } = await import('@/lib/dadata/check');
+  const { STATUS_RU } = await import('@/lib/dadata/client');
+
+  const rows = await sql`
+    select id, name, inn, egrul_status
+    from companies
+    where inn is not null and status <> 'archived'
+    order by egrul_checked_at asc nulls first, id
+  `;
+  const batch = rows.slice(0, SWEEP_LIMIT);
+
+  const result: EgrulSweepResult = {
+    checked: 0,
+    active: 0,
+    changed: [],
+    problem: [],
+    notFound: [],
+    errors: [],
+    remaining: Math.max(0, rows.length - batch.length),
+  };
+
+  for (const row of batch) {
+    const id = Number(row.id);
+    const name = String(row.name);
+    const was = row.egrul_status ? String(row.egrul_status) : null;
+
+    const res = await checkCompanyByInn(id);
+    if (!res.ok) {
+      result.errors.push(`#${id} ${name}: ${res.error ?? 'ошибка проверки'}`);
+      continue;
+    }
+    result.checked++;
+
+    if (!res.found) {
+      const item = { id, name, status: 'NOT_FOUND', statusRu: 'не найдена в ЕГРЮЛ' };
+      result.notFound.push(item);
+      if (was !== 'NOT_FOUND') result.changed.push(item);
+      continue;
+    }
+
+    const status = res.info?.status ?? 'ACTIVE';
+    const item = { id, name, status, statusRu: STATUS_RU[status] ?? status };
+    if (status === 'ACTIVE') {
+      result.active++;
+    } else {
+      result.problem.push(item);
+    }
+    if (was !== status) result.changed.push(item);
+  }
+
+  revalidatePath('/admin/companies');
+  return result;
+}
+
+/** Убрать проблемные компании: в архив или совсем из базы. */
+export async function resolveProblemCompanies(
+  ids: number[],
+  mode: 'archive' | 'delete',
+): Promise<number> {
+  const clean = ids.map(Number).filter((n) => Number.isInteger(n));
+  if (clean.length === 0) return 0;
+
+  const n =
+    mode === 'delete' ? await deleteCompanies(clean) : await applyBulkStatus(clean, 'archived');
+  revalidatePath('/admin/companies');
+  return n;
+}
+
 /** Число из формы: принимает запятую как разделитель, пустое → null. */
 function numOrNull(fd: FormData, key: string): number | null {
   const v = formValue(fd, key);
@@ -224,11 +344,11 @@ export async function createCompanyQuick(fd: FormData) {
   });
 
   if (!result.ok) {
-    if (result.duplicateId) redirect(`/admin/companies/${result.duplicateId}`);
+    if (result.duplicateId) redirect(`/admin/companies/${result.duplicateId}?duplicate=1`);
     throw new Error(result.error);
   }
   revalidatePath('/admin/companies');
-  redirect(`/admin/companies/${result.id}`);
+  redirect(`/admin/companies/${result.id}?created=1`);
 }
 
 export async function createCompany(fd: FormData) {
@@ -245,13 +365,13 @@ export async function createCompany(fd: FormData) {
   const [row] = await sql`
     insert into companies (
       name, inn, inn_raw, seller_contact, region_code, year_reg, tax_system,
-      buy_price_k, price_k, price_note, turnovers, turnover_last_m,
+      buy_price_k, price_k, turnovers, turnover_last_m,
       address, okved, employees, banks, zska, has_license, extra,
       status, source, needs_review
     ) values (
       ${name}, ${inn}, ${innRaw}, ${formValue(fd, 'seller_contact')},
       ${formValue(fd, 'region_code')}, ${numOrNull(fd, 'year_reg')}, ${formValue(fd, 'tax_system')},
-      ${numOrNull(fd, 'buy_price_k')}, ${numOrNull(fd, 'price_k')}, ${formValue(fd, 'price_note')},
+      ${numOrNull(fd, 'buy_price_k')}, ${numOrNull(fd, 'price_k')},
       ${JSON.stringify(turnovers)}::jsonb, ${lastTurnover},
       ${formValue(fd, 'address')}, ${formValue(fd, 'okved')}, ${numOrNull(fd, 'employees')},
       ${formValue(fd, 'banks')}, ${formValue(fd, 'zska')}, ${fd.get('has_license') === 'on'},
@@ -264,5 +384,5 @@ export async function createCompany(fd: FormData) {
     insert into company_audit (company_id, actor, changes)
     values (${row.id}, 'admin', ${JSON.stringify({ created: { old: null, new: name } })}::jsonb)
   `;
-  redirect(`/admin/companies/${row.id}`);
+  redirect(`/admin/companies/${row.id}?created=1`);
 }

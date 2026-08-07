@@ -21,19 +21,26 @@ export function SelectAllCheckbox() {
   );
 }
 
-/** Submit-кнопка с confirm() для массовых операций. */
+/**
+ * Submit-кнопка с confirm() для массовых операций.
+ * formAction позволяет отправить ту же форму в другой server action —
+ * так одна таблица с чекбоксами обслуживает и смену статуса, и удаление.
+ */
 export function ConfirmButton({
   message,
   className,
   children,
+  formAction,
 }: {
   message: string;
   className?: string;
   children: ReactNode;
+  formAction?: (fd: FormData) => void | Promise<void>;
 }) {
   return (
     <button
       className={className}
+      formAction={formAction}
       onClick={(e) => {
         if (!window.confirm(message)) e.preventDefault();
       }}

@@ -3,7 +3,8 @@ import { notFound } from 'next/navigation';
 import { sql } from '@/lib/db/client';
 import { REGION_NAMES } from '@/lib/normalize/regions';
 import { StatusBadge, EgrulBadge } from '@/app/admin/ui';
-import { updateCompany, archiveCompany, checkEgrul } from '../actions';
+import { updateCompany, archiveCompany, checkEgrul, deleteCompany } from '../actions';
+import { ConfirmButton } from '../bulk-controls';
 import { ExternalChecks } from '../external-checks';
 import { CopyCardButton } from '../copy-card';
 import { formatCompanyCard, CompanyLike } from '@/lib/format/company-card';
@@ -15,10 +16,13 @@ const TAXES = ['osno', 'usn6', 'usn_dr', 'ausn'];
 
 export default async function CompanyPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { id } = await params;
+  const sp = await searchParams;
   const companyId = Number(id);
   if (!Number.isInteger(companyId)) notFound();
 
@@ -33,12 +37,13 @@ export default async function CompanyPage({
       : Promise.resolve([]),
   ]);
 
-  // поля оборотов: 3 последних года + все годы, которые уже есть в карточке
+  // поля оборотов: 4 последних года + все годы, которые уже есть в карточке
   const turnovers = (company.turnovers ?? {}) as Record<string, number>;
   const currentYear = new Date().getFullYear();
   const turnoverYears = [
     ...new Set([
       ...Object.keys(turnovers).filter((y) => /^\d{4}$/.test(y)),
+      String(currentYear - 3),
       String(currentYear - 2),
       String(currentYear - 1),
       String(currentYear),
@@ -47,10 +52,32 @@ export default async function CompanyPage({
 
   const update = updateCompany.bind(null, companyId);
   const archive = archiveCompany.bind(null, companyId);
+  const remove = deleteCompany.bind(null, companyId);
   const egrulCheck = checkEgrul.bind(null, companyId);
+
+  const notice =
+    sp.created === '1'
+      ? 'Компания добавлена в базу'
+      : sp.saved === '1'
+        ? 'Изменения сохранены'
+        : sp.duplicate === '1'
+          ? 'Такая компания уже была в базе — открыта существующая карточка'
+          : null;
 
   return (
     <div className="space-y-6">
+      {notice && (
+        <div
+          className={`rounded border px-3 py-2 text-sm ${
+            sp.duplicate === '1'
+              ? 'border-amber-200 bg-amber-50 text-amber-800'
+              : 'border-green-200 bg-green-50 text-green-800'
+          }`}
+        >
+          {sp.duplicate === '1' ? '⚠️ ' : '✅ '}
+          {notice}
+        </div>
+      )}
       <div className="flex items-center gap-3">
         <Link href="/admin/companies" className="text-sm text-gray-500 hover:text-gray-900">← к списку</Link>
         <h1 className="text-xl font-semibold">#{companyId} {String(company.name)}</h1>
@@ -170,9 +197,7 @@ export default async function CompanyPage({
               ))}
             </div>
           </div>
-          <Field label="Обороты (исходный текст)" name="turnover_note" value={company.turnover_note} />
           <Field label="Цена, тыс. ₽" name="price_k" value={company.price_k} raw={company.price_raw} />
-          <Field label="Приписка к цене" name="price_note" value={company.price_note} />
           <Field label="Цена закупа, тыс. ₽" name="buy_price_k" value={company.buy_price_k} />
           <Field label="Адрес" name="address" value={company.address} />
           <Field label="ОКВЭД" name="okved" value={company.okved} />
@@ -214,13 +239,26 @@ export default async function CompanyPage({
         </div>
       </form>
 
-      {company.status !== 'archived' && (
-        <form action={archive}>
-          <button className="rounded border border-red-300 px-3 py-1.5 text-sm text-red-700 hover:bg-red-50">
-            В архив (вместо удаления)
-          </button>
+      <div className="flex flex-wrap items-center gap-2">
+        {company.status !== 'archived' && (
+          <form action={archive}>
+            <button className="rounded border border-amber-300 px-3 py-1.5 text-sm text-amber-800 hover:bg-amber-50">
+              В архив (скрыть из продажи)
+            </button>
+          </form>
+        )}
+        <form action={remove}>
+          <ConfirmButton
+            message={`Удалить компанию «${String(company.name)}» из базы? Действие необратимо — карточка и её история будут стёрты.`}
+            className="rounded border border-red-300 px-3 py-1.5 text-sm text-red-700 hover:bg-red-50"
+          >
+            Удалить из базы
+          </ConfirmButton>
         </form>
-      )}
+        <span className="text-xs text-gray-500">
+          архив оставляет карточку в базе, удаление стирает её полностью
+        </span>
+      </div>
 
       <section>
         <h2 className="mb-2 font-medium">История изменений</h2>

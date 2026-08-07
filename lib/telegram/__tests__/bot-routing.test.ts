@@ -18,6 +18,10 @@ interface FakeCompany {
   seller_contact?: string | null;
   year_reg?: number | null;
   tax_system?: string | null;
+  price_k?: number | null;
+  buy_price_k?: number | null;
+  banks?: string | null;
+  address?: string | null;
 }
 
 /** Состояние фиктивной БД, перезаписывается в каждом тесте. */
@@ -208,18 +212,38 @@ describe('роли и доступ к данным', () => {
     expect(allText()).toContain('из 1');
   });
 
-  it('INV-4: гость не получает названия, ИНН и контакты продавца', async () => {
+  it('партнёру видны название и цена, но не ИНН и не контакт продавца', async () => {
     db.role = 'guest';
     db.companies = makeCompanies(3);
     await handleUpdate(msg('📋 Все компании', 200) as never);
 
     const text = allText();
-    expect(text).not.toContain('ООО Тест');
-    expect(text).not.toContain('7707083890');
-    expect(text).not.toContain('+7 900');
-    // но обезличенные поля есть
+    // разрешённый набор полей
+    expect(text).toContain('ООО Тест 1');
     expect(text).toContain('Татарстан');
     expect(text).toContain('2019');
+    expect(text).toContain('УСН 6%');
+    // закрытые данные не раскрываются
+    expect(text).not.toContain('7707083890');
+    expect(text).not.toContain('+7 900');
+    expect(text).not.toContain('Цена закупа');
+  });
+
+  it('цена продажи показывается партнёру числом, закуп — нет', async () => {
+    db.role = 'guest';
+    db.companies = [
+      {
+        id: 7, name: 'ООО Прайс', status: 'verified', region_code: 'rt',
+        price_k: 300, buy_price_k: 120, banks: 'Альфа', address: 'г. Казань, офис',
+      },
+    ];
+    await handleUpdate(msg('📋 Все компании', 200) as never);
+
+    const text = allText();
+    expect(text).toContain('300 тыс ₽');
+    expect(text).toContain('Альфа');
+    expect(text).toContain('г. Казань, офис');
+    expect(text).not.toContain('120');
   });
 
   it('гость не может добавлять компании по ИНН', async () => {
