@@ -41,18 +41,31 @@ function anonLine(c: Record<string, unknown>): string {
   return `№ ${c.id} — ${parts.join(', ')}, цена обсуждается`;
 }
 
-/** Страница компаний: берём на одну больше, чтобы понять, есть ли продолжение. */
-async function findCompanies(regionCode: string | null, offset: number) {
+/**
+ * Страница компаний: берём на одну больше, чтобы понять, есть ли продолжение.
+ * Админу показываем и черновики — иначе половина базы невидима даже владельцу.
+ */
+async function findCompanies(regionCode: string | null, offset: number, isAdmin: boolean) {
+  const statuses = isAdmin ? ['verified', 'draft'] : ['verified'];
   const rows = regionCode
     ? await sql`
         select * from companies
-        where status = 'verified' and region_code = ${regionCode}
+        where status = any(${statuses}) and region_code = ${regionCode}
         order by id limit ${MAX_RESULTS + 1} offset ${offset}`
     : await sql`
         select * from companies
-        where status = 'verified'
+        where status = any(${statuses})
         order by id limit ${MAX_RESULTS + 1} offset ${offset}`;
-  return { rows: rows.slice(0, MAX_RESULTS), hasMore: rows.length > MAX_RESULTS };
+  const [cnt] = regionCode
+    ? await sql`
+        select count(*)::int as n from companies
+        where status = any(${statuses}) and region_code = ${regionCode}`
+    : await sql`select count(*)::int as n from companies where status = any(${statuses})`;
+  return {
+    rows: rows.slice(0, MAX_RESULTS),
+    hasMore: rows.length > MAX_RESULTS,
+    total: Number(cnt.n),
+  };
 }
 
 /** Выдача списка компаний с учётом роли; offset — постраничный показ по кнопке «Показать ещё». */
@@ -73,7 +86,8 @@ async function sendCompanyList(
     return;
   }
 
-  const { rows, hasMore } = await findCompanies(regionCode, offset);
+  const isAdmin = role === 'admin';
+  const { rows, hasMore, total } = await findCompanies(regionCode, offset, isAdmin);
   if (rows.length === 0) {
     await sendText(
       chatId,
@@ -88,14 +102,16 @@ async function sendCompanyList(
   ];
 
   const where = regionCode ? ` (${regionName(regionCode)})` : '';
-  const range = `${offset + 1}–${offset + rows.length}`;
+  const range = `${offset + 1}–${offset + rows.length} из ${total}`;
   if (full) {
-    await sendText(chatId, `Компании в продаже${where}, ${range}:`);
+    await sendText(chatId, `${isAdmin ? 'Компании' : 'Компании в продаже'}${where}, ${range}:`);
     for (let i = 0; i < rows.length; i++) {
       const isLast = i === rows.length - 1;
+      // черновик виден только админу — помечаем, чтобы не спутать с продажей
+      const draftNote = rows[i].status !== 'verified' ? '⚠️ ЧЕРНОВИК (клиентам не виден)\n' : '';
       await sendText(
         chatId,
-        formatCompanyCard(rows[i] as unknown as CompanyLike),
+        draftNote + formatCompanyCard(rows[i] as unknown as CompanyLike, { showBuyPrice: isAdmin }),
         isLast && hasMore ? { inline: moreButton } : {},
       );
     }
