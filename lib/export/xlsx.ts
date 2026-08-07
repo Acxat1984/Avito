@@ -17,6 +17,8 @@ const SOURCE_RU: Record<string, string> = {
   import: 'импорт',
   avito_bot: 'бот avito',
   manual: 'вручную',
+  quick: 'по ИНН (ЕГРЮЛ)',
+  telegram: 'telegram-бот',
 };
 
 function toExportRow(c: Record<string, unknown>): Record<string, unknown> {

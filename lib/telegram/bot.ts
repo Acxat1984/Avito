@@ -7,7 +7,6 @@ import { parseCompaniesFromText } from '@/lib/llm/parse-company';
 import { parseShortInput } from './parse-short';
 import { createCompanyFromInn } from '@/lib/companies/create-from-inn';
 import { STATUS_RU } from '@/lib/dadata/client';
-import { normalizeCompany } from '@/lib/normalize';
 import { regionName, regionFromText } from '@/lib/normalize/regions';
 
 const MAX_RESULTS = 10;

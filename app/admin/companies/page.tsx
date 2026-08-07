@@ -12,7 +12,9 @@ export const dynamic = 'force-dynamic';
 const PER_PAGE = 50;
 const TAXES = ['osno', 'usn6', 'usn_dr', 'ausn'];
 const STATUSES = ['draft', 'verified', 'reserved', 'sold', 'archived'];
-const SOURCES = ['import', 'avito_bot', 'manual'];
+// значения source, которые реально пишутся в базу: импорт, бот Avito, вручную,
+// быстрое добавление по ИНН (quick) и разбор переписки из Telegram (telegram)
+const SOURCES = ['import', 'avito_bot', 'manual', 'quick', 'telegram'];
 
 export default async function CompaniesPage({
   searchParams,

@@ -1,11 +1,14 @@
 # Avito Assistant + Admin
 
-Платформа из двух частей на одном стеке (см. `SPEC_v2.md` заказчика):
+**Полная документация — [`DOCS.md`](DOCS.md).** Техзадание заказчика — `SPEC_v2.md`.
 
-1. **Бот** — ассистент мессенджера Avito по модели «2 сообщения» (категория «Готовый бизнес»);
-2. **Админка** — управление базой компаний: импорт из Excel, просмотр/редактирование, экспорт, лиды и диалоги.
+Платформа из трёх частей на одном стеке:
 
-Стек: Next.js (App Router, Node runtime) на Vercel + Neon (PostgreSQL) + OpenRouter (LLM) + Telegram.
+1. **Avito-бот** — ассистент мессенджера по модели «2 сообщения» (категория «Готовый бизнес»);
+2. **Telegram-бот** — рабочий инструмент владельца: база компаний, добавление по ИНН, роли;
+3. **Админка** — импорт из Excel, просмотр/редактирование, экспорт, лиды и диалоги.
+
+Стек: Next.js (App Router, Node runtime) на Vercel + Neon (PostgreSQL) + OpenRouter (LLM) + DaData + Telegram.
 
 ## Инварианты бота
 
@@ -44,17 +47,20 @@ Webhook: `POST /api/avito/webhook/<AVITO_WEBHOOK_SECRET>` — ранний 200, 
 ## Структура
 
 ```
-app/api/avito/webhook/[secret]   webhook бота
+app/api/avito/webhook/[secret]   webhook Avito-бота
+app/api/telegram/webhook         webhook Telegram-бота (секрет в заголовке)
 app/api/admin/imports*           импорт: upload → staging → diff → apply/cancel
 app/api/admin/export.xlsx|csv    экспорт с фильтрами таблицы
-app/admin/*                      дашборд, компании, импорт, лиды, диалоги
-lib/normalize/*                  ОБЩИЕ правила нормализации (импорт И бот) + regions.ts
+app/admin/*                      дашборд, компании, импорт, выдачи, лиды, диалоги
+lib/normalize/*                  ОБЩИЕ правила нормализации (импорт И боты) + regions.ts
 lib/import/{parse,match,apply}   двухфазный импорт, «import never blanks»
 lib/avito/{client,guards,types}  OAuth2 + обработка 401/402/403/429/5xx, guards
 lib/dialog/{state,process}       шаблоны сообщений, машина состояний
-lib/llm/{openrouter,prompts}     строгий JSON-анализ, решения принимает код
-lib/telegram/notify.ts           алерты владельцу
-middleware.ts                    Basic Auth на /admin и /api/admin
+lib/llm/{openrouter,parse-company,anonymize}  строгий JSON, маскирование перед LLM
+lib/telegram/{bot,api,users}     Telegram-бот: роутер, вызовы API, роли
+lib/companies/create-from-inn.ts быстрое добавление по ИНН через ЕГРЮЛ
+lib/export/client-list.ts        обезличенная выдача клиенту (INV-4)
+proxy.ts                         Basic Auth на /admin и /api/admin
 lib/db/schema.sql                схема Neon
 ```
 
