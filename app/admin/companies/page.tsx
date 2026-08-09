@@ -6,8 +6,6 @@ import { bulkSetStatus, bulkSetStatusByFilter, bulkDelete } from './actions';
 import { SelectAllCheckbox, ConfirmButton } from './bulk-controls';
 import { EgrulCheckButton } from './egrul-check';
 import { ExportButton } from './export-button';
-import { ClientListBlock } from './client-list';
-import { getClientListWithKey, formatClientListText } from '@/lib/export/client-list';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,8 +26,6 @@ export default async function CompaniesPage({
   const page = Math.max(1, Number(sp.page ?? 1));
   const { rows, total } = await queryCompanies(filters, PER_PAGE, (page - 1) * PER_PAGE);
   const pages = Math.max(1, Math.ceil(total / PER_PAGE));
-  // обезличенный список для клиента строится по тем же фильтрам, но всегда только verified
-  const { rows: clientRows, key: clientKey } = await getClientListWithKey(filters);
 
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(sp)) {
@@ -99,14 +95,6 @@ export default async function CompaniesPage({
           сброс
         </Link>
       </form>
-
-      <ClientListBlock
-        text={formatClientListText(clientRows)}
-        count={clientRows.length}
-        xlsxHref={`/api/admin/export-client.xlsx${exportQs ? `?${exportQs}` : ''}`}
-        keyRows={clientKey}
-        filters={filters}
-      />
 
       <form action={bulkSetStatus}>
       <div className="mb-2 flex flex-wrap items-center gap-2 rounded border bg-white p-2 text-sm">

@@ -1,6 +1,6 @@
 import { sql } from '@/lib/db/client';
 import { config } from '@/lib/config';
-import { TgUpdate, sendText, answerCallback } from './api';
+import { TgUpdate, sendText, sendDocument, answerCallback } from './api';
 import { touchUser, setRole, listUsers, TgRole } from './users';
 import { formatCompanyCard, formatPartnerCard, CompanyLike } from '@/lib/format/company-card';
 import { parseCompaniesFromText } from '@/lib/llm/parse-company';
@@ -11,10 +11,11 @@ import { regionName, regionFromText } from '@/lib/normalize/regions';
 
 const MAX_RESULTS = 10;
 
-const KEYBOARD_GUEST = [['📋 Все компании', '🗺 Регионы']];
+const KEYBOARD_GUEST = [['📋 Все компании', '🗺 Регионы'], ['📥 Скачать таблицу']];
 const KEYBOARD_ADMIN = [
   ['📋 Все компании', '🗺 Регионы'],
   ['➕ Добавить', '👥 Пользователи'],
+  ['📥 Скачать таблицу'],
 ];
 
 function appUrl(path: string): string {
@@ -111,6 +112,41 @@ async function sendCompanyList(
       'Напишите номер интересующего варианта — специалист свяжется с вами и расскажет детали.',
       hasMore ? { inline: moreButton } : {},
     );
+  }
+}
+
+/**
+ * Выгрузка таблицы компаний прямо в чат.
+ * Владелец получает файл со всеми полями, включая контакт продавца и цену
+ * закупа; остальные — ту же таблицу без этих двух колонок и только по
+ * карточкам в продаже.
+ */
+async function sendCompaniesFile(chatId: number, role: TgRole): Promise<void> {
+  const isAdmin = role === 'admin';
+
+  if (!isAdmin && role !== 'partner' && config.telegram.guestAccess === 'closed') {
+    await sendText(chatId, 'Доступ к базе выдаётся вручную — напишите, пожалуйста, кто вы.');
+    await notifyAdmins(`🔔 Запрос выгрузки базы от chat_id ${chatId}`);
+    return;
+  }
+
+  await sendText(chatId, '⏳ Готовлю таблицу…');
+
+  const { exportCompanies } = await import('@/lib/export/xlsx');
+  // владельцу — вся база, остальным только то, что в продаже
+  const { body, filename } = await exportCompanies(
+    isAdmin ? {} : { status: 'verified' },
+    'xlsx',
+    isAdmin ? 'full' : 'nocontacts',
+  );
+
+  const caption = isAdmin
+    ? 'Вся база: все поля, включая контакт продавца и цену закупа.'
+    : 'Компании в продаже. Без контактов продавца и цен закупа.';
+  await sendDocument(chatId, filename, body as Uint8Array, caption);
+
+  if (!isAdmin) {
+    await notifyAdmins(`📥 Выгрузка таблицы: chat_id ${chatId} (роль ${role})`);
   }
 }
 
@@ -321,6 +357,7 @@ const HELP_GUEST =
   'Здравствуйте! Здесь можно посмотреть готовые фирмы в продаже.\n\n' +
   '📋 «Все компании» — список вариантов\n' +
   '🗺 «Регионы» — где и сколько фирм есть\n' +
+  '📥 «Скачать таблицу» — все варианты одним файлом Excel\n' +
   '🔍 Напишите название региона (например «Казань») — покажу варианты там\n' +
   'Или пришлите номер варианта, чтобы узнать детали.';
 
@@ -346,8 +383,9 @@ const HELP_ADMIN =
   '   ⚡ пришлите ИНН → данные из ЕГРЮЛ\n' +
   '   💬 /add + переписка → разбор нейросетью\n' +
   '👥 «Пользователи» — список и выдача доступа\n' +
+  '📥 «Скачать таблицу» — вся база в Excel, со всеми полями\n' +
   '🔍 Регион («Казань») или номер карточки — быстрый поиск\n\n' +
-  'Команды: /inn <ИНН…>, /add <текст>, /regions, /users, /grant <chat_id>, /revoke <chat_id>';
+  'Команды: /inn <ИНН…>, /add <текст>, /regions, /export, /users, /grant <chat_id>, /revoke <chat_id>';
 
 /** Роутер входящих сообщений. */
 export async function handleUpdate(update: TgUpdate): Promise<void> {
@@ -488,6 +526,10 @@ export async function handleUpdate(update: TgUpdate): Promise<void> {
   }
   if (/^🗺|^регионы$|^\/regions/i.test(text)) {
     await sendRegions(chatId, user.role);
+    return;
+  }
+  if (/^📥|^скачать|^\/export/i.test(text)) {
+    await sendCompaniesFile(chatId, user.role);
     return;
   }
   if (/^🔍/.test(text)) {

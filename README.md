@@ -59,7 +59,7 @@ lib/dialog/{state,process}       шаблоны сообщений, машина
 lib/llm/{openrouter,parse-company,anonymize}  строгий JSON, маскирование перед LLM
 lib/telegram/{bot,api,users}     Telegram-бот: роутер, вызовы API, роли
 lib/companies/create-from-inn.ts быстрое добавление по ИНН через ЕГРЮЛ
-lib/export/client-list.ts        обезличенная выдача клиенту (INV-4)
+lib/export/xlsx.ts               выгрузка базы: режимы full / nocontacts
 proxy.ts                         Basic Auth на /admin и /api/admin
 lib/db/schema.sql                схема Neon
 ```

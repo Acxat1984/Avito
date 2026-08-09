@@ -80,12 +80,25 @@ vi.mock('@/lib/db/client', () => {
 
 /** Перехват исходящих сообщений вместо вызова Telegram API. */
 const sent: Array<{ chatId: number; text: string; inline?: unknown }> = [];
+const docs: Array<{ chatId: number; filename: string; caption?: string }> = [];
 vi.mock('@/lib/telegram/api', () => ({
   sendText: async (chatId: number, text: string, opts: Record<string, unknown> = {}) => {
     sent.push({ chatId, text, inline: opts.inline });
   },
+  sendDocument: async (chatId: number, filename: string, _c: Uint8Array, caption?: string) => {
+    docs.push({ chatId, filename, caption });
+  },
   answerCallback: async () => {},
   setWebhook: async () => ({}),
+}));
+
+/** Перехват формирования файла: важны фильтры и режим выгрузки. */
+const exports: Array<{ filters: Record<string, unknown>; mode: string }> = [];
+vi.mock('@/lib/export/xlsx', () => ({
+  exportCompanies: async (filters: Record<string, unknown>, _f: string, mode: string) => {
+    exports.push({ filters, mode });
+    return { body: new Uint8Array([1, 2, 3]), contentType: 'x', filename: 'companies.xlsx' };
+  },
 }));
 
 const { handleUpdate } = await import('../bot');
@@ -129,8 +142,37 @@ const allText = () => sent.map((s) => s.text).join('\n');
 
 beforeEach(() => {
   sent.length = 0;
+  docs.length = 0;
+  exports.length = 0;
   db.companies = [];
   db.role = 'guest';
+});
+
+describe('выгрузка таблицы в чат', () => {
+  it('админ получает файл со всеми полями по всей базе', async () => {
+    db.role = 'admin';
+    await handleUpdate(msg('📥 Скачать таблицу') as never);
+
+    expect(exports).toEqual([{ filters: {}, mode: 'full' }]);
+    expect(docs).toHaveLength(1);
+    expect(docs[0].filename).toBe('companies.xlsx');
+    expect(docs[0].caption).toContain('контакт продавца');
+  });
+
+  it('партнёру уходит файл без контактов и только по компаниям в продаже', async () => {
+    db.role = 'partner';
+    await handleUpdate(msg('📥 Скачать таблицу', 200) as never);
+
+    expect(exports).toEqual([{ filters: { status: 'verified' }, mode: 'nocontacts' }]);
+    expect(docs).toHaveLength(1);
+    expect(docs[0].caption).toContain('Без контактов');
+  });
+
+  it('команда /export работает так же, как кнопка', async () => {
+    db.role = 'admin';
+    await handleUpdate(msg('/export') as never);
+    expect(docs).toHaveLength(1);
+  });
 });
 
 describe('пагинация списка компаний', () => {
