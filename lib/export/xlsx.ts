@@ -46,8 +46,10 @@ function date(v: unknown): string {
 }
 
 /**
- * Строка экспорта. Обороты по годам разворачиваются в отдельные колонки —
- * их состав вычисляется по всей выборке, чтобы таблица была ровной.
+ * Строка экспорта. Порядок колонок — по важности при работе с таблицей:
+ * сначала ИНН, название и телефон продавца, затем деньги, в самом конце
+ * второстепенные ОКВЭД и адрес. Обороты по годам разворачиваются в
+ * отдельные колонки, их состав вычисляется по всей выборке.
  */
 function toExportRow(
   c: Record<string, unknown>,
@@ -55,29 +57,24 @@ function toExportRow(
   mode: ExportMode,
 ): Record<string, unknown> {
   const turnovers = (c.turnovers ?? {}) as Record<string, unknown>;
-  const row: Record<string, unknown> = {
-    'ID': c.id,
-    'Название': c.name,
-    'ИНН': c.inn ?? c.inn_raw,
-    'Регион': regionName(c.region_code as string | null) ?? c.city_raw ?? '',
-    'Год создания': c.year_reg ?? c.year_raw ?? '',
-    'Система налогообложения': c.tax_system ? TAX_RU[String(c.tax_system)] ?? c.tax_system : c.tax_raw ?? '',
-    'Адрес': c.address ?? c.egrul_address ?? '',
-    'ОКВЭД': c.okved ?? c.egrul_okved ?? '',
-    'Расчётный счёт (банки)': c.banks ?? '',
-    'Сотрудники': c.employees ?? '',
-    'ЗСКА': c.zska ?? '',
-    'Лицензия': c.has_license ? 'есть' : '',
-  };
+  const row: Record<string, unknown> = { 'ID': c.id, 'ИНН': c.inn ?? c.inn_raw, 'Название': c.name };
+
+  // телефон продавца — сразу за названием, но только в полной выгрузке
+  if (mode === 'full') row['Телефон продавца'] = c.seller_contact ?? '';
+
+  row['Регион'] = regionName(c.region_code as string | null) ?? c.city_raw ?? '';
+  row['Год создания'] = c.year_reg ?? c.year_raw ?? '';
+  row['Система налогообложения'] = c.tax_system
+    ? TAX_RU[String(c.tax_system)] ?? c.tax_system
+    : c.tax_raw ?? '';
+  row['Расчётный счёт (банки)'] = c.banks ?? '';
 
   for (const y of years) row[`Обороты ${y}, млн`] = num(turnovers[y]);
 
   row['Цена продажи, тыс ₽'] = num(c.price_k ?? c.price_raw);
-  if (mode === 'full') {
-    row['Цена закупа, тыс ₽'] = num(c.buy_price_k);
-    row['Контакт продавца'] = c.seller_contact ?? '';
-  }
+  if (mode === 'full') row['Цена закупа, тыс ₽'] = num(c.buy_price_k);
 
+  row['ЗСКА'] = c.zska ?? '';
   row['Дополнительно'] = c.extra ?? '';
   row['Статус'] = STATUS_RU[String(c.status)] ?? c.status;
   row['Источник'] = SOURCE_RU[String(c.source)] ?? c.source;
@@ -88,8 +85,36 @@ function toExportRow(
   row['Проверено ЕГРЮЛ'] = date(c.egrul_checked_at);
   row['Добавлена'] = date(c.created_at);
 
+  // второстепенное — в конец, чтобы длинные тексты не мешали читать таблицу
+  row['ОКВЭД'] = c.okved ?? c.egrul_okved ?? '';
+  row['Адрес'] = c.address ?? c.egrul_address ?? '';
+
   return row;
 }
+
+/** Ширина колонок Excel: имя → символов. Для остальных — по умолчанию. */
+const COLUMN_WIDTH: Record<string, number> = {
+  'ID': 6,
+  'ИНН': 15,
+  'Название': 38,
+  'Телефон продавца': 20,
+  'Регион': 20,
+  'Год создания': 13,
+  'Система налогообложения': 22,
+  'Расчётный счёт (банки)': 20,
+  'Цена продажи, тыс ₽': 18,
+  'Цена закупа, тыс ₽': 18,
+  'ЗСКА': 10,
+  'Дополнительно': 45,
+  'Статус': 12,
+  'Источник': 17,
+  'Требует проверки': 16,
+  'Статус ЕГРЮЛ': 18,
+  'Проверено ЕГРЮЛ': 16,
+  'Добавлена': 13,
+  'ОКВЭД': 45,
+  'Адрес': 55,
+};
 
 export async function exportCompanies(
   filters: CompanyFilters,
@@ -109,6 +134,11 @@ export async function exportCompanies(
 
   const rows = companies.map((c) => toExportRow(c, years, mode));
   const ws = XLSX.utils.json_to_sheet(rows);
+
+  // ширина колонок: узкие столбцы скрывали бы ИНН, название и телефон
+  const headers = rows.length > 0 ? Object.keys(rows[0]) : [];
+  ws['!cols'] = headers.map((h) => ({ wch: COLUMN_WIDTH[h] ?? (h.startsWith('Обороты') ? 15 : 16) }));
+
   const date = new Date().toISOString().slice(0, 10);
   const suffix = mode === 'nocontacts' ? '_bez_kontaktov' : '';
 
