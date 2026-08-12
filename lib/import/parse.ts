@@ -80,6 +80,7 @@ export function parseWorkbook(buf: ArrayBuffer | Uint8Array): ParseResult | Pars
   const cityCol = findHeader(headers, 'город');
   const yearCol = findHeader(headers, 'год', 'город');
   const extraCol = findHeader(headers, 'дополнит');
+  const banksCol = findHeader(headers, 'банк') ?? findHeader(headers, 'р/с') ?? findHeader(headers, 'счёт');
   const unnamedCols = headers.filter(
     (h) => /^unnamed/i.test(h) || /^__empty/i.test(h),
   );
@@ -97,6 +98,7 @@ export function parseWorkbook(buf: ArrayBuffer | Uint8Array): ParseResult | Pars
       city: cityCol ? row[cityCol] : null,
       year: yearCol ? row[yearCol] : null,
       extra: extraCol ? row[extraCol] : null,
+      banks: banksCol ? row[banksCol] : null,
       unnamed: unnamedCols.map((c) => row[c]),
     });
 

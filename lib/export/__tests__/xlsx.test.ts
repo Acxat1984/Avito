@@ -49,9 +49,18 @@ async function sheetOf(mode: 'full' | 'nocontacts') {
 }
 
 describe('экспорт компаний в Excel', () => {
-  it('главное — в начале: ID, ИНН, название, телефон', async () => {
+  it('главное — в начале: ID, название, ИНН, телефон', async () => {
     const { headers } = await sheetOf('full');
-    expect(headers.slice(0, 4)).toEqual(['ID', 'ИНН', 'Название', 'Телефон продавца']);
+    expect(headers.slice(0, 4)).toEqual(['ID', 'Название', 'ИНН', 'Телефон продавца']);
+  });
+
+  it('служебные колонки в выгрузку не идут', async () => {
+    for (const mode of ['full', 'nocontacts'] as const) {
+      const { headers } = await sheetOf(mode);
+      for (const col of ['Статус', 'Источник', 'Требует проверки', 'Статус ЕГРЮЛ', 'Проверено ЕГРЮЛ', 'Добавлена']) {
+        expect(headers, `${mode}: ${col}`).not.toContain(col);
+      }
+    }
   });
 
   it('второстепенное — в конце: ОКВЭД и адрес', async () => {

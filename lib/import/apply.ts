@@ -108,13 +108,14 @@ export async function applyImport(importId: number): Promise<{
         with c as (
           insert into companies (
             name, inn, inn_raw, seller_contact, region_code, city_raw,
-            year_reg, year_raw, turnover_note, turnover_last_m,
+            year_reg, year_raw, turnover_note, turnover_last_m, turnovers,
             price_k, price_raw, buy_price_k, tax_system, tax_raw,
             extra, has_license, banks,
             status, source, needs_review, review_notes
           ) values (
             ${name}, ${p.inn}, ${p.inn_raw}, ${p.seller_contact}, ${p.region_code}, ${p.city_raw},
             ${p.year_reg}, ${p.year_raw}, ${p.turnover_note}, ${p.turnover_last_m},
+            ${JSON.stringify(p.turnovers ?? {})}::jsonb,
             ${p.price_k}, ${p.price_raw}, ${p.buy_price_k}, ${p.tax_system}, ${p.tax_raw},
             ${p.extra}, ${p.has_license ?? false}, ${p.banks},
             'draft', 'import', ${p.needs_review ?? false}, ${reviewNotes}
@@ -159,6 +160,7 @@ export async function applyImport(importId: number): Promise<{
         year_raw        = coalesce(s.nv->>'year_raw', c.year_raw),
         turnover_note   = coalesce(s.nv->>'turnover_note', c.turnover_note),
         turnover_last_m = coalesce((s.nv->>'turnover_last_m')::numeric, c.turnover_last_m),
+        turnovers       = coalesce((s.nv->'turnovers')::jsonb, c.turnovers),
         price_k         = coalesce((s.nv->>'price_k')::numeric, c.price_k),
         price_raw       = coalesce(s.nv->>'price_raw', c.price_raw),
         buy_price_k     = coalesce((s.nv->>'buy_price_k')::numeric, c.buy_price_k),

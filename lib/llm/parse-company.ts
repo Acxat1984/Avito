@@ -89,6 +89,7 @@ export async function parseCompaniesFromText(
           turnover: raw.turnover,
           price: raw.price,
           seller_contact: raw.contact,
+          banks: raw.banks,
           extra: [
             raw.banks && `банки: ${raw.banks}`,
             raw.debts && `долги/блокировки: ${raw.debts}`,

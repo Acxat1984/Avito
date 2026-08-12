@@ -183,10 +183,10 @@ describe('normalizeExtra (4.7)', () => {
     const r = normalizeExtra('счета сбер, альфа', ['есть лицензия', null, '']);
     expect(r.extra).toBe('счета сбер, альфа; есть лицензия');
     expect(r.has_license).toBe(true);
-    expect(r.banks).toBe('сбер, альфа');
+    expect(r.banks).toBe('Сбер, Альфа');
   });
-  it('т-банк → тинькофф', () => {
-    expect(normalizeExtra('счёт в т-банк').banks).toBe('тинькофф');
+  it('т-банк → Тинькофф', () => {
+    expect(normalizeExtra('счёт в т-банк').banks).toBe('Тинькофф');
   });
   it('пусто', () => {
     const r = normalizeExtra(null, []);

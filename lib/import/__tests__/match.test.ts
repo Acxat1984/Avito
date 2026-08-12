@@ -5,7 +5,7 @@ import { NormalizedCompany } from '@/lib/normalize';
 const base: NormalizedCompany = {
   name: null, inn: null, inn_raw: null, seller_contact: null,
   region_code: null, city_raw: null, year_reg: null, year_raw: null,
-  turnover_note: null, turnover_last_m: null,
+  turnover_note: null, turnover_last_m: null, turnovers: {},
   price_k: null, price_raw: null, buy_price_k: null,
   tax_system: null, tax_raw: null, extra: null,
   has_license: false, banks: null,

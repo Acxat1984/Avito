@@ -60,6 +60,16 @@ export function buildUpdateChanges(
   if (parsed.has_license && existing.has_license !== true) {
     changes.has_license = { old: existing.has_license ?? false, new: true };
   }
+
+  // обороты по годам: доливаем новые годы к уже известным, старые не стираем
+  const newYears = parsed.turnovers ?? {};
+  if (Object.keys(newYears).length > 0) {
+    const oldYears = (existing.turnovers ?? {}) as Record<string, number>;
+    const merged = { ...oldYears, ...newYears };
+    if (JSON.stringify(merged) !== JSON.stringify(oldYears)) {
+      changes.turnovers = { old: oldYears, new: merged };
+    }
+  }
   return changes;
 }
 

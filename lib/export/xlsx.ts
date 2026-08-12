@@ -1,31 +1,19 @@
 import * as XLSX from 'xlsx';
 import { CompanyFilters, queryCompaniesAll } from '@/lib/db/queries';
 import { regionName } from '@/lib/normalize/regions';
-import { STATUS_RU as EGRUL_STATUS_RU } from '@/lib/dadata/client';
 
 /**
- * Раздел 6. Экспорт базы для владельца — все поля карточки.
- * Два режима: `full` (с контактом продавца и ценой закупа) и `nocontacts`
+ * Раздел 6. Экспорт базы для владельца — рабочие поля карточки.
+ * Два режима: `full` (с телефоном продавца и ценой закупа) и `nocontacts`
  * (то же самое, но эти две колонки не попадают в файл — такой файл можно
  * передать партнёру). Используется и админкой, и Telegram-ботом.
+ *
+ * Служебные поля (статус, источник, отметки проверки и данные ЕГРЮЛ)
+ * в выгрузку не идут: они нужны только внутри админки.
  */
 
 export type ExportMode = 'full' | 'nocontacts';
 
-const STATUS_RU: Record<string, string> = {
-  draft: 'черновик',
-  verified: 'проверена',
-  reserved: 'резерв',
-  sold: 'продана',
-  archived: 'архив',
-};
-const SOURCE_RU: Record<string, string> = {
-  import: 'импорт',
-  avito_bot: 'бот avito',
-  manual: 'вручную',
-  quick: 'по ИНН (ЕГРЮЛ)',
-  telegram: 'telegram-бот',
-};
 const TAX_RU: Record<string, string> = {
   osno: 'ОСНО',
   usn6: 'УСН 6%',
@@ -39,15 +27,9 @@ function num(v: unknown): string {
   return String(v).replace('.', ',');
 }
 
-function date(v: unknown): string {
-  if (!v) return '';
-  const d = new Date(String(v));
-  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('ru-RU');
-}
-
 /**
  * Строка экспорта. Порядок колонок — по важности при работе с таблицей:
- * сначала ИНН, название и телефон продавца, затем деньги, в самом конце
+ * сначала название, ИНН и телефон продавца, затем деньги, в самом конце
  * второстепенные ОКВЭД и адрес. Обороты по годам разворачиваются в
  * отдельные колонки, их состав вычисляется по всей выборке.
  */
@@ -57,7 +39,7 @@ function toExportRow(
   mode: ExportMode,
 ): Record<string, unknown> {
   const turnovers = (c.turnovers ?? {}) as Record<string, unknown>;
-  const row: Record<string, unknown> = { 'ID': c.id, 'ИНН': c.inn ?? c.inn_raw, 'Название': c.name };
+  const row: Record<string, unknown> = { 'ID': c.id, 'Название': c.name, 'ИНН': c.inn ?? c.inn_raw };
 
   // телефон продавца — сразу за названием, но только в полной выгрузке
   if (mode === 'full') row['Телефон продавца'] = c.seller_contact ?? '';
@@ -76,14 +58,6 @@ function toExportRow(
 
   row['ЗСКА'] = c.zska ?? '';
   row['Дополнительно'] = c.extra ?? '';
-  row['Статус'] = STATUS_RU[String(c.status)] ?? c.status;
-  row['Источник'] = SOURCE_RU[String(c.source)] ?? c.source;
-  row['Требует проверки'] = c.needs_review ? 'да' : '';
-  row['Статус ЕГРЮЛ'] = c.egrul_status
-    ? EGRUL_STATUS_RU[String(c.egrul_status)] ?? c.egrul_status
-    : '';
-  row['Проверено ЕГРЮЛ'] = date(c.egrul_checked_at);
-  row['Добавлена'] = date(c.created_at);
 
   // второстепенное — в конец, чтобы длинные тексты не мешали читать таблицу
   row['ОКВЭД'] = c.okved ?? c.egrul_okved ?? '';
@@ -106,12 +80,6 @@ const COLUMN_WIDTH: Record<string, number> = {
   'Цена закупа, тыс ₽': 18,
   'ЗСКА': 10,
   'Дополнительно': 45,
-  'Статус': 12,
-  'Источник': 17,
-  'Требует проверки': 16,
-  'Статус ЕГРЮЛ': 18,
-  'Проверено ЕГРЮЛ': 16,
-  'Добавлена': 13,
   'ОКВЭД': 45,
   'Адрес': 55,
 };

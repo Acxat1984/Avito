@@ -45,7 +45,8 @@ export async function sendText(
   text: string,
   opts: {
     keyboard?: string[][];
-    inline?: Array<Array<{ text: string; callback_data: string }>>;
+    /** кнопка либо шлёт callback_data боту, либо открывает ссылку */
+    inline?: Array<Array<{ text: string; callback_data?: string; url?: string }>>;
     /** разметка HTML — только для наших справочных текстов, не для данных из БД */
     html?: boolean;
   } = {},

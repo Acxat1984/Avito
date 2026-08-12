@@ -1,17 +1,24 @@
 import { sql } from '@/lib/db/client';
 import { config } from '@/lib/config';
 import { TgUpdate, sendText, sendDocument, answerCallback } from './api';
-import { touchUser, setRole, listUsers, TgRole } from './users';
+import { touchUser, setRole, listUsers, TgRole, TgUserRow } from './users';
 import { formatCompanyCard, formatPartnerCard, CompanyLike } from '@/lib/format/company-card';
 import { parseCompaniesFromText } from '@/lib/llm/parse-company';
 import { parseShortInput } from './parse-short';
 import { createCompanyFromInn } from '@/lib/companies/create-from-inn';
 import { STATUS_RU } from '@/lib/dadata/client';
 import { regionName, regionFromText } from '@/lib/normalize/regions';
+import { parseTurnoversByYear } from '@/lib/normalize/turnover';
 
 const MAX_RESULTS = 10;
 
-const KEYBOARD_GUEST = [['📋 Все компании', '🗺 Регионы'], ['📥 Скачать таблицу']];
+/** Логин владельца в Telegram — по нему клиент связывается напрямую. */
+const ADMIN_USERNAME = process.env.TELEGRAM_ADMIN_USERNAME ?? 'bizgarant';
+
+const KEYBOARD_GUEST = [
+  ['📋 Все компании', '🗺 Регионы'],
+  ['📥 Скачать таблицу', '✍️ Написать менеджеру'],
+];
 const KEYBOARD_ADMIN = [
   ['📋 Все компании', '🗺 Регионы'],
   ['➕ Добавить', '👥 Пользователи'],
@@ -109,7 +116,8 @@ async function sendCompanyList(
   if (!isAdmin) {
     await sendText(
       chatId,
-      'Напишите номер интересующего варианта — специалист свяжется с вами и расскажет детали.',
+      'Напишите номер интересующего варианта — расскажу детали.\n' +
+        `Связаться с менеджером напрямую: @${ADMIN_USERNAME}`,
       hasMore ? { inline: moreButton } : {},
     );
   }
@@ -148,6 +156,24 @@ async function sendCompaniesFile(chatId: number, role: TgRole): Promise<void> {
   if (!isAdmin) {
     await notifyAdmins(`📥 Выгрузка таблицы: chat_id ${chatId} (роль ${role})`);
   }
+}
+
+/**
+ * Контакт менеджера: даём прямую ссылку на личку владельца и одновременно
+ * сообщаем ему, кто хочет связаться, — чтобы он мог написать первым.
+ */
+async function sendContactManager(chatId: number, user: TgUserRow): Promise<void> {
+  await sendText(
+    chatId,
+    `Напишите менеджеру напрямую: @${ADMIN_USERNAME}\n\n` +
+      'Ответит по любому варианту из базы: детали, цена, оформление сделки.',
+    { inline: [[{ text: '✍️ Открыть чат с менеджером', url: `https://t.me/${ADMIN_USERNAME}` }]] },
+  );
+
+  const who = [user.full_name, user.username ? `@${user.username}` : null]
+    .filter(Boolean)
+    .join(' ');
+  await notifyAdmins(`✍️ Запрос связи с менеджером: ${who || 'без имени'} (chat_id ${chatId})`);
 }
 
 /**
@@ -241,12 +267,9 @@ async function addCompanyFromText(chatId: number, text: string): Promise<void> {
     }
 
     const raw = item.raw as Record<string, string | null>;
-    const turnovers: Record<string, number> = {};
-    // обороты из текста вида «2023 - 92 млн»
-    for (const m of text.matchAll(/(20\d{2})\s*(?:год)?\s*[-–—:]\s*([\d.,]+)\s*млн/gi)) {
-      const v = Number(m[2].replace(',', '.'));
-      if (Number.isFinite(v)) turnovers[m[1]] = v;
-    }
+    // обороты по годам: сначала то, что разобрала нормализация, затем добираем
+    // из всего сообщения — нейросеть могла не положить их в поле turnover
+    const turnovers = { ...parseTurnoversByYear(text), ...n.turnovers };
     const years = Object.keys(turnovers).sort();
     const lastTurnover = years.length ? turnovers[years[years.length - 1]] : n.turnover_last_m;
 
@@ -348,7 +371,9 @@ async function sendCompanyById(chatId: number, id: number, role: TgRole): Promis
   }
   await sendText(
     chatId,
-    `${formatPartnerCard(c as unknown as CompanyLike)}\n\nСпециалист свяжется с вами по этому варианту.`,
+    `${formatPartnerCard(c as unknown as CompanyLike)}\n\n` +
+      `По этому варианту пишите менеджеру: @${ADMIN_USERNAME}`,
+    { inline: [[{ text: '✍️ Написать менеджеру', url: `https://t.me/${ADMIN_USERNAME}` }]] },
   );
   await notifyAdmins(`🔔 Интерес к варианту № ${id} от chat_id ${chatId}`);
 }
@@ -358,6 +383,7 @@ const HELP_GUEST =
   '📋 «Все компании» — список вариантов\n' +
   '🗺 «Регионы» — где и сколько фирм есть\n' +
   '📥 «Скачать таблицу» — все варианты одним файлом Excel\n' +
+  '✍️ «Написать менеджеру» — связаться напрямую\n' +
   '🔍 Напишите название региона (например «Казань») — покажу варианты там\n' +
   'Или пришлите номер варианта, чтобы узнать детали.';
 
@@ -532,6 +558,10 @@ export async function handleUpdate(update: TgUpdate): Promise<void> {
     await sendCompaniesFile(chatId, user.role);
     return;
   }
+  if (/^✍️|^написать|^\/manager|^\/contact/i.test(text)) {
+    await sendContactManager(chatId, user);
+    return;
+  }
   if (/^🔍/.test(text)) {
     await sendText(chatId, 'Напишите название города или региона — например «Казань» или «Самара».');
     return;
@@ -566,7 +596,8 @@ export async function handleUpdate(update: TgUpdate): Promise<void> {
 
   await sendText(
     chatId,
-    'Не понял запрос. Нажмите «Все компании», напишите название региона или номер варианта.',
+    'Не понял запрос. Нажмите «Все компании», напишите название региона или номер варианта.' +
+      (isAdmin ? '' : `\n\nНужен живой ответ — пишите менеджеру: @${ADMIN_USERNAME}`),
     { keyboard },
   );
   if (!isAdmin) {

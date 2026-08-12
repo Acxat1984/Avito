@@ -31,6 +31,8 @@ export interface NormalizedCompany {
   year_raw: string | null;
   turnover_note: string | null;
   turnover_last_m: number | null;
+  /** обороты по годам в млн: {"2023": 92, "2024": 82.2} */
+  turnovers: Record<string, number>;
   price_k: number | null;
   price_raw: string | null;
   buy_price_k: number | null;
@@ -54,6 +56,8 @@ export interface RawCompanyInput {
   city?: unknown;
   year?: unknown;
   extra?: unknown;
+  /** отдельная колонка/поле с банками, если есть */
+  banks?: unknown;
   /** хвостовые Unnamed:* колонки */
   unnamed?: unknown[];
 }
@@ -72,7 +76,7 @@ export function normalizeCompany(input: RawCompanyInput): NormalizedCompany {
   const buyPrice = normalizePrice(input.buy_price);
   const tax = normalizeTax(input.tax);
   const turnover = normalizeTurnover(input.turnover);
-  const extra = normalizeExtra(input.extra, input.unnamed ?? []);
+  const extra = normalizeExtra(input.extra, input.unnamed ?? [], input.banks);
 
   for (const f of [inn, year, region, price, buyPrice, tax, turnover]) {
     problems.push(...f.problems);
@@ -90,6 +94,7 @@ export function normalizeCompany(input: RawCompanyInput): NormalizedCompany {
     year_raw: year.raw,
     turnover_note: turnover.raw,
     turnover_last_m: turnover.value,
+    turnovers: turnover.byYear,
     price_k: price.value,
     price_raw: price.raw,
     buy_price_k: buyPrice.value,

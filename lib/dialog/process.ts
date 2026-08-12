@@ -107,6 +107,7 @@ async function createSellerCard(
     turnover: s('turnover'),
     price: s('price'),
     seller_contact: s('contact'),
+    banks: s('banks'),
     extra: extraParts.join('; ') || null,
   });
 
@@ -116,12 +117,13 @@ async function createSellerCard(
   const [row] = await sql`
     insert into companies (
       name, inn, inn_raw, seller_contact, region_code, city_raw,
-      year_reg, year_raw, turnover_note, turnover_last_m,
+      year_reg, year_raw, turnover_note, turnover_last_m, turnovers,
       price_k, price_raw, tax_system, tax_raw, extra, has_license, banks,
       status, source, needs_review, review_notes, dialog_id
     ) values (
       ${name}, ${norm.inn}, ${norm.inn_raw}, ${norm.seller_contact}, ${norm.region_code}, ${norm.city_raw},
       ${norm.year_reg}, ${norm.year_raw}, ${norm.turnover_note}, ${norm.turnover_last_m},
+      ${JSON.stringify(norm.turnovers ?? {})}::jsonb,
       ${norm.price_k}, ${norm.price_raw}, ${norm.tax_system}, ${norm.tax_raw}, ${norm.extra}, ${norm.has_license}, ${norm.banks},
       'draft', 'avito_bot', true, ${reviewNotes}, ${dialog.id}
     )

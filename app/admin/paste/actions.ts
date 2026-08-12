@@ -25,12 +25,13 @@ export async function saveParsedCompanies(
       const [row] = await sql`
         insert into companies (
           name, inn, inn_raw, seller_contact, region_code, city_raw,
-          year_reg, year_raw, turnover_note, turnover_last_m,
+          year_reg, year_raw, turnover_note, turnover_last_m, turnovers,
           price_k, price_raw, tax_system, tax_raw, extra, has_license, banks,
           status, source, needs_review, review_notes
         ) values (
           ${name}, ${n.inn}, ${n.inn_raw}, ${n.seller_contact}, ${n.region_code}, ${n.city_raw},
           ${n.year_reg}, ${n.year_raw}, ${n.turnover_note}, ${n.turnover_last_m},
+          ${JSON.stringify(n.turnovers ?? {})}::jsonb,
           ${n.price_k}, ${n.price_raw}, ${n.tax_system}, ${n.tax_raw}, ${n.extra}, ${n.has_license}, ${n.banks},
           'draft', 'manual', true, ${notes}
         ) returning id
@@ -63,6 +64,7 @@ export async function saveParsedCompanies(
         year_raw        = coalesce(s.nv->>'year_raw', c.year_raw),
         turnover_note   = coalesce(s.nv->>'turnover_note', c.turnover_note),
         turnover_last_m = coalesce((s.nv->>'turnover_last_m')::numeric, c.turnover_last_m),
+        turnovers       = coalesce((s.nv->'turnovers')::jsonb, c.turnovers),
         price_k         = coalesce((s.nv->>'price_k')::numeric, c.price_k),
         price_raw       = coalesce(s.nv->>'price_raw', c.price_raw),
         tax_system      = coalesce(s.nv->>'tax_system', c.tax_system),
