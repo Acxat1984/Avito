@@ -57,7 +57,7 @@ describe('экспорт компаний в Excel', () => {
   it('служебные колонки в выгрузку не идут', async () => {
     for (const mode of ['full', 'nocontacts'] as const) {
       const { headers } = await sheetOf(mode);
-      for (const col of ['Статус', 'Источник', 'Требует проверки', 'Статус ЕГРЮЛ', 'Проверено ЕГРЮЛ', 'Добавлена']) {
+      for (const col of ['Статус', 'Источник', 'Требует проверки', 'Статус ЕГРЮЛ', 'Проверено ЕГРЮЛ', 'Добавлена', 'Дополнительно']) {
         expect(headers, `${mode}: ${col}`).not.toContain(col);
       }
     }
@@ -89,9 +89,18 @@ describe('экспорт компаний в Excel', () => {
   });
 
   it('обороты разворачиваются в колонки по годам', async () => {
-    const { headers } = await sheetOf('full');
+    const { headers, data } = await sheetOf('full');
     expect(headers).toContain('Обороты 2024, млн');
     expect(headers).toContain('Обороты 2025, млн');
+    expect(String(data['Обороты 2024, млн'])).toBe('12,5');
+  });
+
+  it('сырой текст продавца в файл не попадает, но данные из него — да', async () => {
+    const { headers, data } = await sheetOf('full');
+    expect(headers).not.toContain('Дополнительно');
+    // банки и обороты, разобранные из того же текста, на месте
+    expect(data['Расчётный счёт (банки)']).toBe('Альфа');
+    expect(String(data['Обороты 2025, млн'])).toBe('30');
   });
 
   it('колонкам задана ширина — данные видно без ручной подгонки', async () => {
