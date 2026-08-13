@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { normalizeTurnover, parseTurnoversByYear } from '../turnover';
 import { normalizeExtra, findBanks } from '../extra';
+import { parseShortInput } from '@/lib/telegram/parse-short';
 
 describe('обороты раскладываются по годам', () => {
   it('краткий формат продавцов: 23-4млн; 24-12млн', () => {
@@ -56,6 +57,29 @@ describe('обороты раскладываются по годам', () => {
     const r = normalizeTurnover(null);
     expect(r.value).toBeNull();
     expect(r.byYear).toEqual({});
+  });
+});
+
+describe('добавление по ИНН одним сообщением', () => {
+  // как владелец реально пишет боту
+  const message =
+    'Инн 1658151314 тел 89872908954 закуп 500 цена 650\n' +
+    'Счет альфа, есть СРО, оборот за 23-41млн; 24-40млн; 25-57млн; 26-1,5млн';
+
+  it('ИНН, телефон и цены вынимаются из строки', () => {
+    const p = parseShortInput(message);
+    expect(p.inn).toBe('1658151314');
+    expect(p.contact).toBe('89872908954');
+    expect(p.buyPriceK).toBe(500);
+    expect(p.priceK).toBe(650);
+  });
+
+  it('из остатка сообщения раскладываются обороты и банк', () => {
+    const rest = parseShortInput(message).extra ?? '';
+    expect(parseTurnoversByYear(rest)).toEqual({
+      '2023': 41, '2024': 40, '2025': 57, '2026': 1.5,
+    });
+    expect(findBanks(rest)).toBe('Альфа');
   });
 });
 

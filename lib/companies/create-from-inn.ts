@@ -2,6 +2,7 @@ import { sql } from '@/lib/db/client';
 import { findByInn } from '@/lib/dadata/client';
 import { normalizeInn, normalizeExtra } from '@/lib/normalize';
 import { regionFromKladr } from '@/lib/normalize/regions';
+import { parseTurnoversByYear } from '@/lib/normalize/turnover';
 
 /**
  * Быстрое добавление компании: владелец указывает только ИНН, контакт и цены,
@@ -58,14 +59,22 @@ export async function createCompanyFromInn(input: QuickInput): Promise<QuickResu
   const name = info?.shortName ?? info?.name ?? `ИНН ${inn}`;
   const regYear = info?.regDate ? Number(info.regDate.slice(0, 4)) : null;
 
-  // налоговый режим неизвестен → карточку нужно дозаполнить
-  warnings.push('уточните налоговый режим и обороты');
+  // обороты продавцы пишут одной строкой вместе с прочим («оборот за 23-41млн;
+  // 24-40млн»), поэтому разбираем их прямо из свободного текста
+  const turnovers = parseTurnoversByYear(input.extra ?? '');
+  const years = Object.keys(turnovers).sort();
+  const lastTurnover = years.length ? turnovers[years[years.length - 1]] : null;
+
+  // налоговый режим DaData не отдаёт; обороты просим уточнить, только если
+  // их не удалось вытащить из сообщения
+  warnings.push(years.length ? 'уточните налоговый режим' : 'уточните налоговый режим и обороты');
 
   const [row] = await sql`
     insert into companies (
       name, inn, inn_raw, seller_contact,
       region_code, city_raw, year_reg,
       buy_price_k, price_k,
+      turnovers, turnover_last_m,
       extra, banks, has_license,
       okved, address,
       -- address оставляем пустым: юр. адрес лежит в egrul_address,
@@ -76,6 +85,7 @@ export async function createCompanyFromInn(input: QuickInput): Promise<QuickResu
       ${name}, ${inn}, ${input.inn}, ${input.contact ?? null},
       ${regionCode}, ${addressData?.city ?? addressData?.settlement ?? null}, ${regYear},
       ${input.buyPriceK ?? null}, ${input.priceK ?? null},
+      ${JSON.stringify(turnovers)}::jsonb, ${lastTurnover},
       ${extraParsed.extra}, ${extraParsed.banks}, ${extraParsed.has_license},
       ${info?.okved ?? null}, ${null},
       ${info?.status ?? (info === null ? 'NOT_FOUND' : null)}, ${info?.shortName ?? info?.name ?? null},
