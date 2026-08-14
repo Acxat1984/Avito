@@ -439,7 +439,7 @@ export async function handleUpdate(update: TgUpdate): Promise<void> {
     }
     if (data.startsWith('verify:') && user.role === 'admin') {
       const id = Number(data.slice(7));
-      const [c] = await sql`select id, name, status from companies where id = ${id}`;
+      const [c] = await sql`select id, name, status, needs_review from companies where id = ${id}`;
       if (!c) {
         await sendText(chatId, `Карточка № ${id} не найдена.`);
         return;
@@ -448,10 +448,17 @@ export async function handleUpdate(update: TgUpdate): Promise<void> {
         await sendText(chatId, `№ ${id} «${c.name}» уже в продаже.`);
         return;
       }
-      await sql`update companies set status = 'verified', updated_at = now() where id = ${id}`;
+      // перевод в продажу = подтверждение карточки, флаг проверки снимаем
+      await sql`
+        update companies set status = 'verified', needs_review = false, updated_at = now()
+        where id = ${id}
+      `;
       await sql`
         insert into company_audit (company_id, actor, changes)
-        values (${id}, ${'tg:' + chatId}, ${JSON.stringify({ status: { old: c.status, new: 'verified' } })}::jsonb)
+        values (${id}, ${'tg:' + chatId}, ${JSON.stringify({
+          status: { old: c.status, new: 'verified' },
+          ...(c.needs_review ? { needs_review: { old: true, new: false } } : {}),
+        })}::jsonb)
       `;
       await sendText(chatId, `✅ № ${id} «${c.name}» переведена в продажу.`);
       return;

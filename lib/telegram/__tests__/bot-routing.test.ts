@@ -254,7 +254,7 @@ describe('роли и доступ к данным', () => {
     expect(allText()).toContain('из 1');
   });
 
-  it('партнёру видны название и цена, но не ИНН и не контакт продавца', async () => {
+  it('партнёру видны название и ИНН, но не контакт продавца и не закуп', async () => {
     db.role = 'guest';
     db.companies = makeCompanies(3);
     await handleUpdate(msg('📋 Все компании', 200) as never);
@@ -262,11 +262,11 @@ describe('роли и доступ к данным', () => {
     const text = allText();
     // разрешённый набор полей
     expect(text).toContain('ООО Тест 1');
+    expect(text).toContain('7707083890');
     expect(text).toContain('Татарстан');
     expect(text).toContain('2019');
     expect(text).toContain('УСН 6%');
     // закрытые данные не раскрываются
-    expect(text).not.toContain('7707083890');
     expect(text).not.toContain('+7 900');
     expect(text).not.toContain('Цена закупа');
   });

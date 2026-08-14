@@ -1,8 +1,9 @@
 import { sql } from '@/lib/db/client';
 import { findByInn } from '@/lib/dadata/client';
 import { normalizeInn, normalizeExtra } from '@/lib/normalize';
+import { findBanks } from '@/lib/normalize/extra';
 import { regionFromKladr } from '@/lib/normalize/regions';
-import { parseTurnoversByYear } from '@/lib/normalize/turnover';
+import { extractTurnovers } from '@/lib/normalize/turnover';
 
 /**
  * Быстрое добавление компании: владелец указывает только ИНН, контакт и цены,
@@ -55,13 +56,16 @@ export async function createCompanyFromInn(input: QuickInput): Promise<QuickResu
   const regionCode = regionFromKladr(addressData?.region_kladr_id, addressData?.city ?? addressData?.settlement);
   if (info && !regionCode) warnings.push('регион не сопоставлен со справочником — проверьте вручную');
 
-  const extraParsed = normalizeExtra(input.extra ?? null, []);
+  // Обороты продавцы пишут одной строкой вместе с прочим («оборот за 23-41млн;
+  // 24-40млн»). Разбираем их из свободного текста и убираем из «дополнительно»,
+  // чтобы одни и те же цифры не лежали в двух местах.
+  const { byYear: turnovers, rest } = extractTurnovers(input.extra ?? '');
+
+  // банки ищем по исходному тексту: там они могли стоять рядом с оборотами
+  const extraParsed = normalizeExtra(rest, [], findBanks(input.extra ?? null));
   const name = info?.shortName ?? info?.name ?? `ИНН ${inn}`;
   const regYear = info?.regDate ? Number(info.regDate.slice(0, 4)) : null;
 
-  // обороты продавцы пишут одной строкой вместе с прочим («оборот за 23-41млн;
-  // 24-40млн»), поэтому разбираем их прямо из свободного текста
-  const turnovers = parseTurnoversByYear(input.extra ?? '');
   const years = Object.keys(turnovers).sort();
   const lastTurnover = years.length ? turnovers[years[years.length - 1]] : null;
 

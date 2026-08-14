@@ -86,9 +86,9 @@ function priceText(c: CompanyLike): string | null {
 
 /**
  * Карточка для пользователя бота, который не является владельцем
- * (партнёр, гость). Белый список полей: название, адрес, расчётный счёт,
+ * (партнёр, гость). Белый список полей: название, ИНН, адрес, расчётный счёт,
  * обороты, налоговый режим, год создания и цена продажи.
- * НЕ содержит: ИНН, контакт продавца, цену закупа, ЗСКА и «дополнительно»
+ * НЕ содержит: контакт продавца, цену закупа, ЗСКА и «дополнительно»
  * (там бывают долги и причина продажи).
  */
 export function formatPartnerCard(c: CompanyLike): string {
@@ -98,6 +98,7 @@ export function formatPartnerCard(c: CompanyLike): string {
     lines.push(`✅ ${label}: ${value}`);
   };
 
+  add('ИНН', c.inn ?? c.inn_raw);
   add('Год создания', c.year_reg ? `${c.year_reg} год` : null);
   add('Налогообложение', c.tax_system ? TAX_NAMES[c.tax_system] ?? c.tax_system : c.tax_raw);
 

@@ -81,8 +81,10 @@ export async function updateCompany(id: number, fd: FormData) {
     }
   }
 
-  // отметка «проверено» → сброс needs_review
-  if (fd.get('reviewed') === 'on' && existing.needs_review) {
+  // Сброс «требует проверки»: по галочке «проверено» либо автоматически при
+  // переводе в продажу — verified и означает, что владелец карточку подтвердил.
+  const goesToSale = updates.status === 'verified';
+  if ((fd.get('reviewed') === 'on' || goesToSale) && existing.needs_review) {
     updates.needs_review = false;
     changes.needs_review = { old: true, new: false };
   }
@@ -166,19 +168,30 @@ async function applyBulkStatus(ids: number[], status: string): Promise<number> {
   if (!VALID_STATUSES.includes(status) || ids.length === 0) return 0;
 
   const rows = await sql`
-    select id, status from companies
+    select id, status, needs_review from companies
     where id = any(${ids}) and status <> ${status}
   `;
   if (rows.length === 0) return 0;
 
+  // перевод в продажу = подтверждение карточки, флаг проверки снимается
+  const clearsReview = status === 'verified';
   const changedIds = rows.map((r) => Number(r.id));
   const audit = rows.map((r) => ({
     id: Number(r.id),
-    changes: { status: { old: r.status, new: status } },
+    changes: {
+      status: { old: r.status, new: status },
+      ...(clearsReview && r.needs_review ? { needs_review: { old: true, new: false } } : {}),
+    },
   }));
 
   await sql.transaction([
-    sql`update companies set status = ${status}, updated_at = now() where id = any(${changedIds})`,
+    sql`
+      update companies set
+        status = ${status},
+        needs_review = case when ${clearsReview} then false else needs_review end,
+        updated_at = now()
+      where id = any(${changedIds})
+    `,
     sql`
       insert into company_audit (company_id, actor, changes)
       select (r->>'id')::bigint, 'admin', r->'changes'

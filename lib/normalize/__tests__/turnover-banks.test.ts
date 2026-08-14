@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeTurnover, parseTurnoversByYear } from '../turnover';
+import { normalizeTurnover, parseTurnoversByYear, extractTurnovers } from '../turnover';
 import { normalizeExtra, findBanks } from '../extra';
 import { parseShortInput } from '@/lib/telegram/parse-short';
 
@@ -80,6 +80,36 @@ describe('добавление по ИНН одним сообщением', () 
       '2023': 41, '2024': 40, '2025': 57, '2026': 1.5,
     });
     expect(findBanks(rest)).toBe('Альфа');
+  });
+
+  it('разобранные обороты не остаются в «дополнительно»', () => {
+    const rest = parseShortInput(message).extra ?? '';
+    const { byYear, rest: extra } = extractTurnovers(rest);
+
+    expect(byYear).toEqual({ '2023': 41, '2024': 40, '2025': 57, '2026': 1.5 });
+    // цифры оборотов вырезаны, содержательный остаток сохранён
+    expect(extra).not.toMatch(/41млн|40млн|57млн|1,5млн/);
+    expect(extra).toContain('СРО');
+    expect(extra).toContain('альфа');
+  });
+});
+
+describe('вырезание оборотов из текста', () => {
+  it('остаётся только то, что не про обороты', () => {
+    const { byYear, rest } = extractTurnovers('Счет альфа, есть СРО, оборот за 23-41млн; 24-40млн');
+    expect(byYear).toEqual({ '2023': 41, '2024': 40 });
+    expect(rest).toBe('Счет альфа, есть СРО');
+  });
+
+  it('если кроме оборотов ничего не было — остаётся пусто', () => {
+    const { rest } = extractTurnovers('оборот за 23-41млн; 24-40млн');
+    expect(rest).toBeNull();
+  });
+
+  it('текст без оборотов не трогается', () => {
+    const { byYear, rest } = extractTurnovers('Счет альфа, есть СРО');
+    expect(byYear).toEqual({});
+    expect(rest).toBe('Счет альфа, есть СРО');
   });
 });
 
